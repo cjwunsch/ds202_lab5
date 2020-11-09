@@ -1,0 +1,110 @@
+---
+title: "Lab 5"
+author: "Carter Wunsch"
+date: "11/8/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(dplyr)
+library(ggplot2)
+library(tidyverse)
+library(lubridate)
+library(maps)
+library(ggrepel)
+library(ggthemes)
+
+acc <- read.csv("https://raw.githubusercontent.com/xdaiISU/ds202materials/master/hwlabs/fars2017/accident.csv", stringsAsFactors = FALSE)
+per <- read.csv("https://raw.githubusercontent.com/xdaiISU/ds202materials/master/hwlabs/fars2017/person.csv", stringsAsFactors = FALSE)
+```
+
+Question 1
+
+```{r}
+df1 <- group_by(acc, DAY_WEEK) %>% summarise(Count = n())
+ggplot(df1, aes(x=DAY_WEEK, y = Count)) + geom_bar(stat='identity', aes(fill=DAY_WEEK))
+```
+
+The user's manual states that 1 = Sunday, 6 = Friday, and 7 = Saturday. This means that the most accidents happen Saturdays, and the next highest days are Fridays and Sundays.
+
+Question 2
+
+```{r}
+df2 <- filter(per, INJ_SEV == 4)
+```
+
+Question 3
+
+```{r}
+df3 <- drop_na(df2, MAKE) %>% group_by(STATE, MAKE) %>% summarise(DEATHS = sum(PER_NO)) %>% group_by(STATE) %>% top_n(n = 1, wt = DEATHS)
+```
+
+Question 4
+
+```{r}
+states <- map_data("state")
+makeCodes <- read.csv("makeCodes.csv", header=TRUE)
+stateCodes <- read.csv("stateCodes.csv", header=TRUE)
+stateCodes$State <- tolower(stateCodes$State)
+
+df4 <- left_join(df3, makeCodes, by=c("MAKE"="Codes")) %>% left_join(stateCodes, by=c("STATE"="Codes"))
+temp <- left_join(df4, states, by=c("State"="region"))
+
+labels <- group_by(states, region) %>% summarise(long = mean(long), lat = mean(lat)) %>% left_join(df4, by=c("region"="State"))
+
+ggplot(temp, aes(x = long, y = lat, fill = DEATHS)) + geom_polygon(aes(group = group)) + geom_text_repel(data = labels, aes(label = Make)) + theme_map()
+```
+
+The definition of most dangerous vehicle is the make with the highest number of deaths. I've displayed the most dangerous make of each state in the graph above. On average, the most dangerous make is Chevrolet.
+
+Question 5
+
+```{r}
+df5 <- left_join(acc, per, by = "ST_CASE")
+```
+
+Question 6
+```{r}
+df5 <- filter(df5, HOUR.x < 25)
+df6 <- group_by(df5, DAY_WEEK, HOUR.x) %>% summarise(count = n())
+
+ggplot(df6, aes(x = HOUR.x, y = count)) + geom_point() + facet_wrap(facets = "DAY_WEEK")
+```
+
+Question 7
+
+```{r}
+counties <- map_data("county")
+glc <- readxl::read_xlsx("FRPP_GLC_-_United_StatesSep292020.xlsx")
+
+glc$`County Code` <- as.numeric(glc$`County Code`)
+glc$`State Code` <- as.numeric(glc$`State Code`)
+glc$`State Name` <- tolower(glc$`State Name`)
+glc$`County Name` <- tolower(glc$`County Name`)
+
+df7 <- group_by(df2, STATE, COUNTY) %>% summarise(DEATHS = sum(PER_NO))
+df7 <- left_join(df7, glc, by=c("COUNTY" = "County Code", "STATE" = "State Code")) %>% distinct(STATE, COUNTY, .keep_all = TRUE) %>% left_join(counties, by=c("State Name" = "region", "County Name" = "subregion"))
+
+ggplot(df7, aes(x = long, y = lat, group = group, fill = DEATHS)) + geom_polygon() + theme_map()
+```
+
+Question 8
+
+```{r}
+summer <- filter(df2, MONTH > 5 & MONTH < 9)
+winter <- filter(df2, MONTH > 10 | MONTH < 3)
+
+summerDeaths <- group_by(summer, STATE) %>% summarise(DEATHS = sum(PER_NO))
+winterDeaths <- group_by(winter, STATE) %>% summarise(DEATHS = sum(PER_NO))
+
+df8 <- full_join(summerDeaths, winterDeaths, by = "STATE")
+df8$seasonDiff <- winterDeaths$DEATHS - summerDeaths$DEATHS
+
+df9 <- left_join(df8, stateCodes, by = c("STATE" = "Codes")) %>% left_join(states, by = c("State" = "region"))
+
+ggplot(df9, aes(x = long, y = lat, group = group, fill = seasonDiff)) + geom_polygon() + theme_map()
+```
+
+In the graph above, the color of the state is dependent on the difference in summer and winter deaths. The lighter colored states have a greater number of deaths in the winter than summer. Most states have more deaths in the summer, but Florida and Texas have more deaths in the winter.
